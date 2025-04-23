@@ -1,10 +1,13 @@
 import cv2
 import sys
+import json
+import os
+from datetime import datetime
 from typing import Optional, Dict, Any
 from dataclasses import asdict
 import numpy as np
 
-from config import MODEL_CONFIG, CAMERA_CONFIG, VISUALIZATION_CONFIG
+from config import MODEL_CONFIG, CAMERA_CONFIG, VISUALIZATION_CONFIG, OUTPUT_CONFIG
 from camera.picamera_handler import PiCameraHandler
 from detection.detector import PropellerDetector, DetectionResult
 from utils.visualization import display_image, setup_mouse_callback, destroy_all_windows
@@ -19,6 +22,11 @@ class PropellerHealthApp:
         })
         self.captured_image = None
         self.window_name = 'Propeller Health Detection'
+        self._setup_output_directory()
+
+    def _setup_output_directory(self):
+        """Create output directory if it doesn't exist."""
+        os.makedirs(OUTPUT_CONFIG['results_directory'], exist_ok=True)
 
     def run(self):
         """Run the main application loop."""
@@ -77,6 +85,7 @@ class PropellerHealthApp:
         
         if result is not None:
             self._display_results(result)
+            self._save_results(result)
 
     def _display_results(self, result: DetectionResult):
         """Display the detection results."""
@@ -99,6 +108,40 @@ class PropellerHealthApp:
         display_image('Processed Image', result.processed_image)
         cv2.waitKey(0)
         destroy_all_windows()
+
+    def _save_results(self, result: DetectionResult):
+        """Save detection results to JSON file and optionally save image."""
+        try:
+            # Prepare results data
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            results_data = {
+                "timestamp": datetime.now().isoformat(),
+                "healthy_propellers": result.healthy_count,
+                "faulty_propellers": result.faulty_count,
+                "total_propellers": result.total_count,
+                "quadrant_counts": result.quadrant_counts,
+                "status": result.status,
+                "damaged_quadrants": result.damaged_quadrants,
+                "missing_quadrants": result.missing_quadrants,
+                "excess_quadrants": result.excess_quadrants
+            }
+
+            # Save JSON
+            json_filename = f"propeller_results_{timestamp}.json"
+            json_path = os.path.join(OUTPUT_CONFIG['results_directory'], json_filename)
+            with open(json_path, 'w') as f:
+                json.dump(results_data, f, indent=4)
+            print(f"Results saved to: {json_path}")
+
+            # Save image if configured
+            if OUTPUT_CONFIG.get('save_images', False):
+                img_filename = f"propeller_result_{timestamp}.{OUTPUT_CONFIG.get('image_format', 'jpg')}"
+                img_path = os.path.join(OUTPUT_CONFIG['results_directory'], img_filename)
+                cv2.imwrite(img_path, result.processed_image)
+                print(f"Result image saved to: {img_path}")
+
+        except Exception as e:
+            print(f"Error saving results: {e}")
 
     def _cleanup(self):
         """Clean up resources."""
